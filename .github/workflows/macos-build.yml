@@ -21,27 +21,17 @@ jobs:
           xcodebuild -version
 
       - name: Locate Xcode project & list schemes
-        id: probe
         run: |
           set -euo pipefail
-          PROJECT=$(find NeuralAmpModeler -maxdepth 2 -name "*-macOS.xcodeproj" -print -quit)
-          if [ -z "${PROJECT:-}" ]; then
-            echo "Could not find a *-macOS.xcodeproj under NeuralAmpModeler/"
-            exit 1
-          fi
-          echo "PROJECT=$PROJECT" >> $GITHUB_ENV
+          PROJECT=$(find NeuralAmpModeler -name "*-macOS.xcodeproj" -print -quit)
           echo "Project: $PROJECT"
           xcodebuild -list -project "$PROJECT"
 
       - name: Build AU (Release, no codesign)
         run: |
           set -euo pipefail
-          SCHEME=$(xcodebuild -list -project "$PROJECT" | awk '/Schemes:/{flag=1;next}/^$/{flag=0}flag' | grep -E '_AU$| AU$' | head -n1 | xargs)
-          if [ -z "${SCHEME:-}" ]; then
-            echo "Could not find an AU scheme. Schemes available:"
-            xcodebuild -list -project "$PROJECT"
-            exit 1
-          fi
+          PROJECT=$(find NeuralAmpModeler -name "*-macOS.xcodeproj" -print -quit)
+          SCHEME=$(xcodebuild -list -project "$PROJECT" | awk '/Schemes:/{flag=1;next}/^$/{flag=0}flag' | grep -E 'AUV2|AUV3|AU' | head -n1 | xargs)
           echo "Using scheme: $SCHEME"
           xcodebuild \
             -project "$PROJECT" \
@@ -53,15 +43,9 @@ jobs:
 
       - name: Package AU as zip
         run: |
-          set -euo pipefail
           mkdir -p out
-          COMPONENT=$(find build/DerivedData -name "*.component" -print -quit || true)
-          if [ -z "${COMPONENT:-}" ]; then
-            echo "No .component found under DerivedData. Layout:"
-            find build/DerivedData -maxdepth 6 -type d -print | head -n 200
-            exit 1
-          fi
-          echo "Found: $COMPONENT"
+          COMPONENT=$(find build/DerivedData -name "*.component" -print -quit)
+          echo "Found component: $COMPONENT"
           zip -r out/Tone3000-NAM-AU.zip "$COMPONENT"
 
       - name: Upload AU artifact
