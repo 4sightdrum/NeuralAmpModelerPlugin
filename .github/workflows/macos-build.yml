@@ -8,39 +8,33 @@ on:
 jobs:
   build:
     runs-on: macos-14
-
     steps:
-      - name: Checkout (with submodules)
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Select Xcode & show version
+      - name: Install Xcode & list version
         run: |
           sudo xcode-select -s /Applications/Xcode.app
           xcodebuild -version
 
-      - name: Locate Xcode project & list schemes
+      - name: Build AU
         run: |
-          set -euo pipefail
           PROJECT=$(find NeuralAmpModeler -name "*-macOS.xcodeproj" -print -quit)
-          echo "Project: $PROJECT"
-          xcodebuild -list -project "$PROJECT"
+          SCHEME=$(xcodebuild -list -project "$PROJECT" | awk '/Schemes:/{flag=1;next}/^$/{flag=0}flag' \
+                  | grep -E 'AUV2|AUV3|AU' | head -n1 | xargs)
+          xcodebuild -project "$PROJECT" \
+                     -scheme "$SCHEME" \
+                     -configuration Release \
+                     -derivedDataPath build/DerivedData \
+                     CODE_SIGNING_ALLOWED=NO \
+                     build
 
-      - name: Build AU (Release, no codesign)
+      - name: Package AU component
         run: |
-          set -euo pipefail
-          PROJECT=$(find NeuralAmpModeler -name "*-macOS.xcodeproj" -print -quit)
-          SCHEME=$(xcodebuild -list -project "$PROJECT" | awk '/Schemes:/{flag=1;next}/^$/{flag=0}flag' | grep -E 'AUV2|AUV3|AU' | head -n1 | xargs)
-          echo "Using scheme: $SCHEME"
-          xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Release -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO build
-
-      - name: Package AU as zip
-        run: |
-          set -euo pipefail
           mkdir -p out
           COMPONENT=$(find build/DerivedData -name "*.component" -print -quit)
-          echo "Found: $COMPONENT"
           zip -r out/Tone3000-NAM-AU.zip "$COMPONENT"
 
       - name: Upload AU artifact
