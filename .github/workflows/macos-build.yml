@@ -1,0 +1,31 @@
+name: Build macOS AU
+
+on:
+  push:
+    branches: [ tone3000-browser ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install dependencies
+        run: |
+          brew install cmake
+      - name: Configure CMake
+        run: |
+          cmake -B build -G Xcode
+      - name: Build AU
+        run: |
+          cmake --build build --config Release --target install
+      - name: Package AU component
+        run: |
+          mkdir -p dist
+          # Copy any .component outputs to dist
+          find build -type d -name "*.component" -print -exec cp -R {} dist/ \;
+      - name: Upload AU artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: NeuralAmpModeler_AU
+          path: dist
