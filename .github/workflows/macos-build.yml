@@ -8,50 +8,38 @@ on:
 jobs:
   build:
     runs-on: macos-14
-
     steps:
-      - name: Checkout (with submodules)
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Select Xcode & show version
+      - name: Install tools
         run: |
-          sudo xcode-select -s /Applications/Xcode.app
-          xcodebuild -version
+          brew update
+          brew install cmake ninja pkg-config || true
 
-      - name: Locate Xcode project & list schemes
+      - name: Configure
         run: |
-          set       set -euo pipefail
-      PROJECT=$(find NeuralAmpModeler -name "*-macOS.xcodeproj" -print -quit)
-      echo "Project: $PROJECT"
-      xcodebuild -list -project "$PROJECT"nt -quit)
-          echo "Project: $PROJECT"
-          xcodebuild -list -project "$PROJECT"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_AU=ON -DBUILD_VST3=OFF -DBUILD_VST2=OFF -DBUILD_LV2=OFF
 
-      - name: Build AU (Release, no codesign)
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Ad-hoc code sign AU
         run: |
-          set -euo pipefail
-          PROJECT=$(find NeuralAmpModeler -name "*-macOS.xcodeproj" -print -quit)
-          SCHEME=$(xcodebuild -list -project "$PROJECT" | awk '/Schemes:/{flag=1;next}/^$/{flag=0}flag' | grep -E 'AUV2|AUV3|AU' | head -n1 | xargs)
-          echo "Using scheme: $SCHEME"
-          xcodebuild \
-            -project "$PROJECT" \
-            -scheme "$SCHEME" \
-            -configuration Release \
-            -derivedDataPath build/DerivedData \
-            CODE_SIGNING_ALLOWED=NO \
-            build
+          find build -name "*.component" -maxdepth 4 -print0 | while IFS= read -r -d '' comp; do
+            codesign --force --deep -s - "$comp" || true
+          done
 
-      - name: Package AU as zip
+      - name: Package AU
         run: |
           mkdir -p out
-          COMPONENT=$(find build/DerivedData -name "*.component" -print -quit)
-          echo "Found component: $COMPONENT"
-          zip -r out/Tone3000-NAM-AU.zip "$COMPONENT"
+          find build -name "*.component" -maxdepth 4 -exec cp -R {} out/ \;
+          (cd out && zip -r NAM-AU-macos.zip *.component)
 
       - name: Upload AU artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Tone3000-NAM-AU
-          path: out/Tone3000-NAM-AU.zip
+          name: NAM-AU-macos
+          path: out/NAM-AU-macos.zip
