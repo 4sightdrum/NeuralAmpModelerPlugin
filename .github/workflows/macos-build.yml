@@ -7,29 +7,65 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-14
+
     steps:
-      - name: Checkout
+      - name: Checkout (with submodules)
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Install dependencies
+
+      - name: Select Xcode & show version
         run: |
-          brew update
-          brew install cmake ninja || true
-      - name: Configure CMake
+          sudo xcode-select -s /Applications/Xcode.app
+          xcodebuild -version
+
+      - name: Locate Xcode project & list schemes
+        id: probe
         run: |
-          cmake -B build -G Xcode
-      - name: Build AU
+          set -euo pipefail
+          PROJECT=$(find NeuralAmpModeler -maxdepth 2 -name "*-macOS.xcodeproj" -print -quit)
+          if [ -z "${PROJECT:-}" ]; then
+            echo "Could not find a *-macOS.xcodeproj under NeuralAmpModeler/"
+            exit 1
+          fi
+          echo "PROJECT=$PROJECT" >> $GITHUB_ENV
+          echo "Project: $PROJECT"
+          xcodebuild -list -project "$PROJECT"
+
+      - name: Build AU (Release, no codesign)
         run: |
-          cmake --build build --config Release --target install
-      - name: Package AU component
+          set -euo pipefail
+          SCHEME=$(xcodebuild -list -project "$PROJECT" | awk '/Schemes:/{flag=1;next}/^$/{flag=0}flag' | grep -E '_AU$| AU$' | head -n1 | xargs)
+          if [ -z "${SCHEME:-}" ]; then
+            echo "Could not find an AU scheme. Schemes available:"
+            xcodebuild -list -project "$PROJECT"
+            exit 1
+          fi
+          echo "Using scheme: $SCHEME"
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package AU as zip
         run: |
-          mkdir -p dist
-          find build -type d -name "*.component" -print -exec cp -R {} dist \;
+          set -euo pipefail
+          mkdir -p out
+          COMPONENT=$(find build/DerivedData -name "*.component" -print -quit || true)
+          if [ -z "${COMPONENT:-}" ]; then
+            echo "No .component found under DerivedData. Layout:"
+            find build/DerivedData -maxdepth 6 -type d -print | head -n 200
+            exit 1
+          fi
+          echo "Found: $COMPONENT"
+          zip -r out/Tone3000-NAM-AU.zip "$COMPONENT"
+
       - name: Upload AU artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NeuralAmpModeler_AU
-          path: dist
-          if-no-files-found: error
+          name: Tone3000-NAM-AU
+          path: out/Tone3000-NAM-AU.zip
