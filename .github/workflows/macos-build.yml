@@ -22,8 +22,10 @@ jobs:
 
       - name: Locate Xcode project & list schemes
         run: |
-          set -euo pipefail
-          PROJECT=$(find NeuralAmpModeler -name "*-macOS.xcodeproj" -print -quit)
+          set       set -euo pipefail
+      PROJECT=$(find NeuralAmpModeler -name "*-macOS.xcodeproj" -print -quit)
+      echo "Project: $PROJECT"
+      xcodebuild -list -project "$PROJECT"nt -quit)
           echo "Project: $PROJECT"
           xcodebuild -list -project "$PROJECT"
 
