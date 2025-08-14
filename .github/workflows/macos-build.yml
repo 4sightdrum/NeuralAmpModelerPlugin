@@ -8,37 +8,51 @@ on:
 jobs:
   build:
     runs-on: macos-14
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install Xcode & list version
+      - name: Build & patch Tone3000Hellbox
         run: |
-          sudo xcode-select -s /Applications/Xcode.app
-          xcodebuild -version
+          bash <<'FIXHELLBOX_ALL'
+          set -euo pipefail
+          cd "$HOME/Tone3000Hellbox"
 
-      - name: Build AU
-        run: |
-          PROJECT=$(find NeuralAmpModeler -name "*-macOS.xcodeproj" -print -quit)
-          SCHEME=$(xcodebuild -list -project "$PROJECT" | awk '/Schemes:/{flag=1;next}/^$/{flag=0}flag' \
-                  | grep -E 'AUV2|AUV3|AU' | head -n1 | xargs)
-          xcodebuild -project "$PROJECT" \
-                     -scheme "$SCHEME" \
-                     -configuration Release \
-                     -derivedDataPath build/DerivedData \
-                     CODE_SIGNING_ALLOWED=NO \
-                     build
+          # Apply patches
+          sed -i '' 's/\*bp\.state=\*c;/bp.coefficients = c;/' Source/FX_Wah.h || true
+          sed -i '' '/^#include "HellboxAssets.h"/d' Source/PluginEditor.cpp || true
+          if [ -f Source/Tone3000API.cpp ]; then
+            sed -i '' \
+              's|std::unique_ptr<juce::InputStream>(url\.createInputStream())|url.createInputStream(juce::URL::InputStreamOptions().withConnectionTimeoutMs(15000).withNumRedirectsToFollow(8))|g' \
+              Source/Tone3000API.cpp
+            sed -i '' \
+              's|url\.createInputStream()|url.createInputStream(juce::URL::InputStreamOptions().withConnectionTimeoutMs(15000).withNumRedirectsToFollow(8))|g' \
+              Source/Tone3000API.cpp
+          fi
+          perl -0777 -pe 's/juce::Font\\(\\s*([0-9]+(?:\\.[0-9]+)?f)\\s*\\)/juce::Font(juce::FontOptions().withHeight(\\1))/g' -i '' Source/PluginEditor.cpp 2>/dev/null || true
+          perl -0777 -pe 's/juce::Font\\(\\s*([0-9]+(?:\\.[0-9]+)?f)\\s*\\)/juce::Font(juce::FontOptions().withHeight(\\1))/g' -i '' Source/ToneBrowserPanel.cpp 2>/dev/null || true
 
-      - name: Package AU component
+          # Build and install
+          cmake --build build/xcode --config Release --target install
+
+          # Code-sign the AU and app
+          AU="/Library/Audio/Plug-Ins/Components/Tone3000: Hellbox.component"
+          APP="$HOME/Tone3000Hellbox/build/xcode/Tone3000Hellbox_artefacts/Release/Standalone/Tone3000: Hellbox.app"
+          [ -d "$AU" ] && sudo codesign --force --sign - --timestamp=none "$AU" || true
+          [ -d "$APP" ] && codesign --force --sign - --timestamp=none "$APP" || true
+
+          # Refresh AU cache
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          FIXHELLBOX_ALL
+
+      - name: Package AU
         run: |
           mkdir -p out
-          COMPONENT=$(find build/DerivedData -name "*.component" -print -quit)
-          zip -r out/Tone3000-NAM-AU.zip "$COMPONENT"
+          find /Library/Audio/Plug-Ins/Components -name "*Hellbox*.component" -print -exec zip -r out/Tone3000Hellbox.zip {} \\;
 
-      - name: Upload AU artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: Tone3000-NAM-AU
-          path: out/Tone3000-NAM-AU.zip
+          name: Tone3000Hellbox
+          path: out/Tone3000Hellbox.zip
